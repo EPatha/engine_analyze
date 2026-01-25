@@ -144,7 +144,7 @@ class ChessAnalyzer(QWidget):
             "\n📖 Instructions:\n"
             "• Drag overlay window over chess board\n"
             "• Resize overlay to match board size\n"
-            "• Analysis updates automatically\n"
+            "• Click 'Start Analysis' to begin\n"
             "• Press Q to quit"
         )
         instructions.setFont(QFont('Arial', 10))
@@ -152,6 +152,47 @@ class ChessAnalyzer(QWidget):
         layout.addWidget(instructions)
         
         self.setLayout(layout)
+    
+    def toggle_analysis(self):
+        """Toggle analysis on/off"""
+        # Skip if analysis is not enabled
+        if not self.analysis_enabled:
+            return
+            
+        self.analysis_enabled = not self.analysis_enabled
+        
+        if self.analysis_enabled:
+            self.start_button.setText("⏸ Stop Analysis")
+            self.start_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #f44336;
+                    color: white;
+                    padding: 10px;
+                    border-radius: 5px;
+                    min-height: 30px;
+                }
+                QPushButton:hover {
+                    background-color: #da190b;
+                }
+            """)
+            self.status_label.setText("Status: Running ▶")
+            self.status_label.setStyleSheet("color: green;")
+        else:
+            self.start_button.setText("▶ Start Analysis")
+            self.start_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #4CAF50;
+                    color: white;
+                    padding: 10px;
+                    border-radius: 5px;
+                    min-height: 30px;
+                }
+                QPushButton:hover {
+                    background-color: #45a049;
+                }
+            """)
+            self.status_label.setText("Status: Stopped ⏸")
+            self.status_label.setStyleSheet("color: orange;")
         
     def update_analysis(self):
         """Update analysis based on current screen capture"""

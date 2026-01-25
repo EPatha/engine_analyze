@@ -249,11 +249,18 @@ class ChessAnalyzer(QWidget):
         if 'error' in analysis:
             self.best_move_label.setText(f"Error: {analysis['error']}")
             self.best_move_label.setStyleSheet("color: red;")
+            self.overlay.clear_best_move()
         else:
             # Update best move
             best_move = analysis.get('best_move_san', '-')
+            best_move_uci = analysis.get('best_move_uci', '')
+            
             self.best_move_label.setText(f"Best Move: {best_move}")
             self.best_move_label.setStyleSheet("color: green; font-size: 16px;")
+            
+            # Draw arrow on overlay
+            if best_move_uci:
+                self.overlay.set_best_move(best_move_uci)
             
             # Update evaluation
             evaluation = analysis.get('evaluation', '-')

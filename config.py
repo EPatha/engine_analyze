@@ -7,8 +7,8 @@
 STOCKFISH_PATH = "/opt/homebrew/bin/stockfish"
 
 # Engine settings
-STOCKFISH_DEPTH = 15
-STOCKFISH_TIME_LIMIT = 2.0  # seconds
+STOCKFISH_DEPTH = 10  # Reduced depth for faster analysis
+STOCKFISH_TIME_LIMIT = 1.0  # Reduced time limit
 
 # Detection settings
 CAPTURE_FPS = 2  # Frames per second for real-time capture

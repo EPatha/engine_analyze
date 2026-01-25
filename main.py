@@ -3,8 +3,9 @@
 import sys
 import cv2
 import numpy as np
+import time
 from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
 import chess
 
@@ -13,6 +14,37 @@ from screen_capture import ScreenCapture
 from board_detector import ChessBoardDetector
 from chess_engine import ChessEngine
 import config
+
+
+class AnalysisWorker(QThread):
+    """Worker thread for chess engine analysis"""
+    analysis_complete = pyqtSignal(dict)
+    
+    def __init__(self, stockfish_path, board):
+        super().__init__()
+        self.stockfish_path = stockfish_path
+        self.board = board
+        
+    def run(self):
+        """Run analysis in background thread"""
+        engine = None
+        try:
+            # Create a new engine instance for this thread
+            engine = ChessEngine(self.stockfish_path)
+            if not engine.engine:
+                self.analysis_complete.emit({'error': 'Could not initialize engine'})
+                return
+                
+            analysis = engine.analyze_position(self.board)
+            top_moves = engine.get_top_moves(self.board, 3)
+            analysis['top_moves'] = top_moves
+            self.analysis_complete.emit(analysis)
+        except Exception as e:
+            self.analysis_complete.emit({'error': str(e)})
+        finally:
+            # Clean up engine
+            if engine:
+                engine.close()
 
 
 class ChessAnalyzer(QWidget):
@@ -30,6 +62,9 @@ class ChessAnalyzer(QWidget):
         # State
         self.current_board = chess.Board()
         self.analyzing = False
+        self.last_analysis_time = 0
+        self.analysis_worker = None
+        self.last_fen = None
         
         # UI
         self.init_ui()
@@ -110,38 +145,59 @@ class ChessAnalyzer(QWidget):
                 # Update FEN display
                 self.fen_label.setText(f"Position: {fen[:50]}...")
                 
-                # Analyze position
-                if not self.analyzing and self.chess_engine.engine:
+                # Only analyze if:
+                # 1. Not currently analyzing
+                # 2. Engine is initialized
+                # 3. Position has changed
+                # 4. At least 2 seconds since last analysis
+                current_time = time.time()
+                if (not self.analyzing and 
+                    self.chess_engine.engine and 
+                    fen != self.last_fen and
+                    current_time - self.last_analysis_time > 2.0):
+                    
                     self.analyzing = True
-                    analysis = self.chess_engine.analyze_position(board)
+                    self.last_fen = fen
+                    self.last_analysis_time = current_time
                     
-                    if 'error' in analysis:
-                        self.best_move_label.setText(f"Error: {analysis['error']}")
-                    else:
-                        # Update best move
-                        best_move = analysis.get('best_move_san', '-')
-                        self.best_move_label.setText(f"Best Move: {best_move}")
-                        self.best_move_label.setStyleSheet("color: green; font-size: 16px;")
-                        
-                        # Update evaluation
-                        evaluation = analysis.get('evaluation', '-')
-                        self.eval_label.setText(f"Evaluation: {evaluation}")
-                        
-                        # Get top 3 moves
-                        top_moves = self.chess_engine.get_top_moves(board, 3)
-                        if top_moves:
-                            moves_text = "Top Moves:\n"
-                            for i, move_info in enumerate(top_moves, 1):
-                                moves_text += f"{i}. {move_info['move_san']} ({move_info['evaluation']})\n"
-                            self.top_moves_label.setText(moves_text)
-                    
-                    self.analyzing = False
+                    # Run analysis in background thread with new engine instance
+                    self.analysis_worker = AnalysisWorker(
+                        self.chess_engine.stockfish_path, 
+                        board
+                    )
+                    self.analysis_worker.analysis_complete.connect(self.on_analysis_complete)
+                    self.analysis_worker.start()
                     
             except Exception as e:
                 self.fen_label.setText(f"Detection error: {str(e)[:50]}")
                 
         except Exception as e:
             print(f"Analysis error: {e}")
+    
+    def on_analysis_complete(self, analysis):
+        """Handle completed analysis from worker thread"""
+        self.analyzing = False
+        
+        if 'error' in analysis:
+            self.best_move_label.setText(f"Error: {analysis['error']}")
+            self.best_move_label.setStyleSheet("color: red;")
+        else:
+            # Update best move
+            best_move = analysis.get('best_move_san', '-')
+            self.best_move_label.setText(f"Best Move: {best_move}")
+            self.best_move_label.setStyleSheet("color: green; font-size: 16px;")
+            
+            # Update evaluation
+            evaluation = analysis.get('evaluation', '-')
+            self.eval_label.setText(f"Evaluation: {evaluation}")
+            
+            # Get top 3 moves
+            top_moves = analysis.get('top_moves', [])
+            if top_moves:
+                moves_text = "Top Moves:\n"
+                for i, move_info in enumerate(top_moves, 1):
+                    moves_text += f"{i}. {move_info['move_san']} ({move_info['evaluation']})\n"
+                self.top_moves_label.setText(moves_text)
     
     def keyPressEvent(self, event):
         """Handle key press events"""
@@ -151,6 +207,12 @@ class ChessAnalyzer(QWidget):
     def closeEvent(self, event):
         """Clean up when closing"""
         self.capture_timer.stop()
+        
+        # Stop any running analysis
+        if self.analysis_worker and self.analysis_worker.isRunning():
+            self.analysis_worker.terminate()
+            self.analysis_worker.wait()
+        
         self.screen_capture.close()
         self.chess_engine.close()
         self.overlay.close()

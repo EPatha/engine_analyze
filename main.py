@@ -8,12 +8,11 @@ from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget, QPushBut
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
 import chess
-import chess.engine
-import os
 
 from overlay import OverlayWindow
 from screen_capture import ScreenCapture
 from board_detector import ChessBoardDetector
+from chess_engine import ChessEngine
 import config
 
 
@@ -21,68 +20,41 @@ class AnalysisWorker(QThread):
     """Worker thread for chess engine analysis"""
     analysis_complete = pyqtSignal(dict)
     
-    def __init__(self, fen_string):
+    def __init__(self, stockfish_path, board):
         super().__init__()
-        self.fen_string = fen_string
+        self.stockfish_path = stockfish_path
+        self.board = board
         self._is_cancelled = False
         
     def run(self):
-        """Run analysis in background thread with fresh engine"""
+        """Run analysis in background thread"""
         engine = None
         try:
             if self._is_cancelled:
                 return
+                
+            # Create a new engine instance for this thread
+            engine = ChessEngine(self.stockfish_path)
+            if not engine.engine:
+                self.analysis_complete.emit({'error': 'Could not initialize engine'})
+                return
             
-            # Check if stockfish exists
-            if not os.path.exists(config.STOCKFISH_PATH):
-                self.analysis_complete.emit({'error': 'Stockfish not found'})
+            if self._is_cancelled:
                 return
                 
-            # Create board from FEN
-            board = chess.Board(self.fen_string)
-            
-            # Start engine
-            engine = chess.engine.SimpleEngine.popen_uci(config.STOCKFISH_PATH)
-            
-            if self._is_cancelled:
-                return
-            
-            # Get best move with short timeout
-            result = engine.play(board, chess.engine.Limit(time=0.5))
-            best_move = result.move
-            
-            if self._is_cancelled:
-                return
-            
-            # Quick analysis for evaluation
-            info = engine.analyse(board, chess.engine.Limit(time=0.5, depth=10))
-            
-            score = info.get('score')
-            if score:
-                if score.is_mate():
-                    evaluation = f"Mate in {score.relative.moves}"
-                else:
-                    centipawns = score.relative.score()
-                    evaluation = f"{centipawns / 100:.2f}"
-            else:
-                evaluation = "0.00"
+            # Analyze position (now includes top moves)
+            analysis = engine.analyze_position(self.board)
             
             if not self._is_cancelled:
-                self.analysis_complete.emit({
-                    'best_move': best_move,
-                    'best_move_san': board.san(best_move),
-                    'best_move_uci': best_move.uci(),
-                    'evaluation': evaluation,
-                    'top_moves': []
-                })
-                
+                self.analysis_complete.emit(analysis)
         except Exception as e:
             if not self._is_cancelled:
                 self.analysis_complete.emit({'error': str(e)})
         finally:
+            # Clean up engine
             if engine:
                 try:
-                    engine.quit()
+                    engine.close()
                 except:
                     pass
     
@@ -102,12 +74,15 @@ class ChessAnalyzer(QWidget):
         self.screen_capture = ScreenCapture()
         self.board_detector = ChessBoardDetector()
         
-        # Check if Stockfish is available
-        self.engine_available = os.path.exists(config.STOCKFISH_PATH)
-        
-        if not self.engine_available:
-            print(f"Warning: Stockfish not found at {config.STOCKFISH_PATH}")
-            print("Please install: brew install stockfish")
+        # Try to initialize engine, but continue if it fails
+        try:
+            self.chess_engine = ChessEngine()
+            self.engine_available = self.chess_engine.engine is not None
+        except Exception as e:
+            print(f"Warning: Could not initialize engine: {e}")
+            self.chess_engine = None
+            self.engine_available = False
+        self.engine_errors = 0  # Count engine errors
         
         # State
         self.current_board = chess.Board()
@@ -115,8 +90,7 @@ class ChessAnalyzer(QWidget):
         self.last_analysis_time = 0
         self.analysis_worker = None
         self.last_fen = None
-        self.analysis_enabled = False
-        self.engine_errors = 0
+        self.analysis_enabled = False  # Analysis starts disabled
         
         # UI
         self.init_ui()
@@ -124,15 +98,15 @@ class ChessAnalyzer(QWidget):
         # Timer for real-time capture
         self.capture_timer = QTimer()
         self.capture_timer.timeout.connect(self.update_analysis)
-        self.capture_timer.start(1000 // config.CAPTURE_FPS)
+        self.capture_timer.start(1000 // config.CAPTURE_FPS)  # Convert FPS to milliseconds
         
         # Show overlay
         self.overlay.show()
         
     def init_ui(self):
         """Initialize the analysis display window"""
-        self.setWindowTitle("Chess Analysis - Stockfish")
-        self.setGeometry(100, 700, 400, 350)
+        self.setWindowTitle("Chess Analysis")
+        self.setGeometry(100, 700, 400, 300)
         
         # Create layout
         layout = QVBoxLayout()
@@ -145,10 +119,12 @@ class ChessAnalyzer(QWidget):
         
         # Start/Stop button
         button_layout = QHBoxLayout()
+        self.start_button = QPushButton("▶ Start Analysis")
         
+        # Disable button if engine not available
         if not self.engine_available:
-            self.start_button = QPushButton("⚠ Stockfish Not Found")
             self.start_button.setEnabled(False)
+            self.start_button.setText("⚠ Engine Not Available")
             self.start_button.setStyleSheet("""
                 QPushButton {
                     background-color: #999999;
@@ -159,41 +135,38 @@ class ChessAnalyzer(QWidget):
                 }
             """)
         else:
-            self.start_button = QPushButton("▶ Start Analysis")
             self.start_button.setStyleSheet("""
                 QPushButton {
                     background-color: #4CAF50;
                     color: white;
                     padding: 10px;
                     border-radius: 5px;
+        
+        if not self.engine_available:
+            self.status_label.setText("⚠ Engine unavailable - FEN detection only")
+            self.status_label.setStyleSheet("color: red;")
+        
                     min-height: 30px;
                 }
                 QPushButton:hover {
                     background-color: #45a049;
                 }
-            """)
-            
-        self.start_button.setFont(QFont('Arial', 11, QFont.Weight.Bold))
+                }
+        """)
         self.start_button.clicked.connect(self.toggle_analysis)
         button_layout.addWidget(self.start_button)
         layout.addLayout(button_layout)
         
         # Status label
         self.status_label = QLabel("Status: Stopped ⏸")
-        self.status_label.setFont(QFont('Arial', 10))
+        self.status_label.setFont(QFont('Arial', 11))
         self.status_label.setStyleSheet("color: orange;")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        if not self.engine_available:
-            self.status_label.setText("⚠ Stockfish not installed")
-            self.status_label.setStyleSheet("color: red;")
-            
         layout.addWidget(self.status_label)
         
         # FEN display
         self.fen_label = QLabel("Position: Waiting...")
         self.fen_label.setWordWrap(True)
-        self.fen_label.setFont(QFont('Arial', 9))
         layout.addWidget(self.fen_label)
         
         # Best move display
@@ -206,15 +179,20 @@ class ChessAnalyzer(QWidget):
         self.eval_label.setFont(QFont('Arial', 12))
         layout.addWidget(self.eval_label)
         
+        # Top moves display
+        self.top_moves_label = QLabel("Top Moves:\n-")
+        self.top_moves_label.setWordWrap(True)
+        layout.addWidget(self.top_moves_label)
+        
         # Instructions
         instructions = QLabel(
             "\n📖 Instructions:\n"
-            "• Drag overlay over chess board\n"
-            "• Resize to match board\n"
-            "• Click 'Start' to analyze\n"
+            "• Drag overlay window over chess board\n"
+            "• Resize overlay to match board size\n"
+            "• Click 'Start Analysis' to begin\n"
             "• Press Q to quit"
         )
-        instructions.setFont(QFont('Arial', 9))
+        instructions.setFont(QFont('Arial', 10))
         instructions.setStyleSheet("color: gray;")
         layout.addWidget(instructions)
         
@@ -222,6 +200,10 @@ class ChessAnalyzer(QWidget):
     
     def toggle_analysis(self):
         """Toggle analysis on/off"""
+        # Skip if analysis is not enabled
+        if not self.analysis_enabled:
+            return
+            
         self.analysis_enabled = not self.analysis_enabled
         
         if self.analysis_enabled:
@@ -256,42 +238,93 @@ class ChessAnalyzer(QWidget):
             """)
             self.status_label.setText("Status: Stopped ⏸")
             self.status_label.setStyleSheet("color: orange;")
-            self.overlay.clear_best_move()
         
     def update_analysis(self):
         """Update analysis based on current screen capture"""
+        # Skip if analysis is not enabled
         if not self.analysis_enabled:
             return
             
         try:
+            # Get capture rectangle from overlay
             capture_rect = self.overlay.get_capture_rect()
+            
+            # Capture screen
             screen_img = self.screen_capture.capture_rect(capture_rect)
+            
+            # Detect board and pieces
             fen = self.board_detector.image_to_fen(screen_img)
             
             try:
+                # Create board from FEN
                 board = chess.Board(fen)
                 self.current_board = board
+                
+                # Update FEN display
                 self.fen_label.setText(f"Position: {fen[:50]}...")
                 
+                # Only analyze if:
+                # 1. Not currently analyzing
+                # 2. Engine is initialized
+                # 3. Position has changed
+                # 4. At least 2 seconds since last analysis
+                # 5. Engine hasn't failed too many times
                 current_time = time.time()
                 if (not self.analyzing and 
                     self.engine_available and
+                    self.chess_engine and
+                    self.chess_engine.engine and 
                     fen != self.last_fen and
-                    current_time - self.last_analysis_time > 3.0 and
-                    self.engine_errors < 5):
+                    current_time - self.last_analysis_time > 2.0 and
+                    self.engine_errors < 3):  # Stop after 3 errors
                     
                     self.analyzing = True
                     self.last_fen = fen
                     self.last_analysis_time = current_time
                     
-                    self.analysis_worker = AnalysisWorker(fen)
+                    # Run analysis in background thread with new engine instance
+                    self.analysis_worker = AnalysisWorker(
+                        self.chess_engine.stockfish_path, 
+                        board
+                    )
                     self.analysis_worker.analysis_complete.connect(self.on_analysis_complete)
                     self.analysis_worker.start()
-                    
-                elif self.engine_errors >= 5:
-                    self.status_label.setText("⚠ Too many errors")
+                elif self.engine_errors >= 3:
+                    # Too many errors, disable engine
+                    self.status_label.setText("⚠ Engine disabled (too many errors)")
                     self.status_label.setStyleSheet("color: red;")
                     self.analysis_enabled = False
+                    self.start_button.setEnabled(False)
+                    
+            except Exception as e:
+                self.fen_label.setText(f"Detection error: {str(e)[:50]}")
+                
+        except Exception as e:
+            print(f"Analysis error: {e}")
+            if self.engine_errors >= 3:
+                self.status_label.setText("⚠ Engine disabled (crashed)")
+                self.status_label.setStyleSheet("color: red;")
+                self.analysis_enabled = False
+                self.start_button.setEnabled(False)
+        else:
+            # Reset error count on success
+            self.engine_errors = 0
+               if (not self.analyzing and 
+                    self.chess_engine.engine and 
+                    fen != self.last_fen and
+                    current_time - self.last_analysis_time > 2.0):
+                    
+                    self.analyzing = True
+                    self.last_fen = fen
+                    self.last_analysis_time = current_time
+                    
+                    # Run analysis in background thread with new engine instance
+                    self.analysis_worker = AnalysisWorker(
+                        self.chess_engine.stockfish_path, 
+                        board
+                    )
+                    self.analysis_worker.analysis_complete.connect(self.on_analysis_complete)
+                    self.analysis_worker.start()
                     
             except Exception as e:
                 self.fen_label.setText(f"Detection error: {str(e)[:50]}")
@@ -300,33 +333,41 @@ class ChessAnalyzer(QWidget):
             print(f"Analysis error: {e}")
     
     def on_analysis_complete(self, analysis):
-        """Handle completed analysis"""
-        self.analyzing = False
+        """Handle completed analysis from worker thread"""
+        self.analyzing = Falsecancel()
+            self.analysis_worker.terminate()
+            self.analysis_worker.wait(1000)  # Wait max 1 second
         
-        if 'error' in analysis:
-            self.engine_errors += 1
-            self.best_move_label.setText(f"Error: {analysis['error']}")
-            self.best_move_label.setStyleSheet("color: red;")
+        self.screen_capture.close()
+        if self.chess_engine:
+            try:
+                self.chess_engine.close()
+            except:
+                passsetStyleSheet("color: red;")
             self.overlay.clear_best_move()
-            
-            if self.engine_errors >= 5:
-                self.status_label.setText("⚠ Engine disabled")
-                self.status_label.setStyleSheet("color: red;")
-                self.analysis_enabled = False
         else:
-            self.engine_errors = 0
-            
+            # Update best move
             best_move = analysis.get('best_move_san', '-')
             best_move_uci = analysis.get('best_move_uci', '')
             
             self.best_move_label.setText(f"Best Move: {best_move}")
             self.best_move_label.setStyleSheet("color: green; font-size: 16px;")
             
+            # Draw arrow on overlay
             if best_move_uci:
                 self.overlay.set_best_move(best_move_uci)
             
+            # Update evaluation
             evaluation = analysis.get('evaluation', '-')
             self.eval_label.setText(f"Evaluation: {evaluation}")
+            
+            # Get top 3 moves
+            top_moves = analysis.get('top_moves', [])
+            if top_moves:
+                moves_text = "Top Moves:\n"
+                for i, move_info in enumerate(top_moves, 1):
+                    moves_text += f"{i}. {move_info['move_san']} ({move_info['evaluation']})\n"
+                self.top_moves_label.setText(moves_text)
     
     def keyPressEvent(self, event):
         """Handle key press events"""
@@ -337,12 +378,13 @@ class ChessAnalyzer(QWidget):
         """Clean up when closing"""
         self.capture_timer.stop()
         
+        # Stop any running analysis
         if self.analysis_worker and self.analysis_worker.isRunning():
-            self.analysis_worker.cancel()
             self.analysis_worker.terminate()
-            self.analysis_worker.wait(1000)
+            self.analysis_worker.wait()
         
         self.screen_capture.close()
+        self.chess_engine.close()
         self.overlay.close()
         event.accept()
 
@@ -350,8 +392,11 @@ class ChessAnalyzer(QWidget):
 def main():
     """Main entry point"""
     app = QApplication(sys.argv)
+    
+    # Set application style
     app.setStyle('Fusion')
     
+    # Create and show analyzer
     analyzer = ChessAnalyzer()
     analyzer.show()
     

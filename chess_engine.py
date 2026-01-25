@@ -2,7 +2,6 @@
 
 import chess
 import chess.engine
-from stockfish import Stockfish
 import config
 import os
 
@@ -19,7 +18,6 @@ class ChessEngine:
         """
         self.stockfish_path = stockfish_path or config.STOCKFISH_PATH
         self.engine = None
-        self.stockfish = None
         
         # Try to initialize engine
         self.initialize_engine()

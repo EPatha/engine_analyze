@@ -4,7 +4,7 @@ import sys
 import cv2
 import numpy as np
 import time
-from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget, QPushButton, QHBoxLayout
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
 import chess
@@ -65,6 +65,7 @@ class ChessAnalyzer(QWidget):
         self.last_analysis_time = 0
         self.analysis_worker = None
         self.last_fen = None
+        self.analysis_enabled = False  # Analysis starts disabled
         
         # UI
         self.init_ui()
@@ -88,7 +89,34 @@ class ChessAnalyzer(QWidget):
         # Title
         title = QLabel("♟️ Real-time Chess Analyzer")
         title.setFont(QFont('Arial', 16, QFont.Weight.Bold))
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setAlignment(Qt.A
+        
+        # Start/Stop button
+        button_layout = QHBoxLayout()
+        self.start_button = QPushButton("▶ Start Analysis")
+        self.start_button.setFont(QFont('Arial', 12, QFont.Weight.Bold))
+        self.start_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                padding: 10px;
+                border-radius: 5px;
+                min-height: 30px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        self.start_button.clicked.connect(self.toggle_analysis)
+        button_layout.addWidget(self.start_button)
+        layout.addLayout(button_layout)
+        
+        # Status label
+        self.status_label = QLabel("Status: Stopped ⏸")
+        self.status_label.setFont(QFont('Arial', 11))
+        self.status_label.setStyleSheet("color: orange;")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.status_label)lignmentFlag.AlignCenter)
         layout.addWidget(title)
         
         # FEN display

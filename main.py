@@ -35,9 +35,8 @@ class AnalysisWorker(QThread):
                 self.analysis_complete.emit({'error': 'Could not initialize engine'})
                 return
                 
+            # Analyze position (now includes top moves)
             analysis = engine.analyze_position(self.board)
-            top_moves = engine.get_top_moves(self.board, 3)
-            analysis['top_moves'] = top_moves
             self.analysis_complete.emit(analysis)
         except Exception as e:
             self.analysis_complete.emit({'error': str(e)})
@@ -117,8 +116,7 @@ class ChessAnalyzer(QWidget):
         self.status_label.setFont(QFont('Arial', 11))
         self.status_label.setStyleSheet("color: orange;")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.status_label)lignmentFlag.AlignCenter)
-        layout.addWidget(title)
+        layout.addWidget(self.status_label)
         
         # FEN display
         self.fen_label = QLabel("Position: Waiting...")

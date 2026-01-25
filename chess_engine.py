@@ -58,28 +58,33 @@ class ChessEngine:
             }
         
         try:
-            # Analyze position
-            info = self.engine.analyse(
+            # Analyze position with multipv to get top 3 moves at once
+            info_list = self.engine.analyse(
                 board, 
                 chess.engine.Limit(
                     depth=config.STOCKFISH_DEPTH,
                     time=config.STOCKFISH_TIME_LIMIT
-                )
+                ),
+                multipv=3  # Get top 3 moves
             )
             
-            # Get best move
-            result = self.engine.play(
-                board,
-                chess.engine.Limit(
-                    depth=config.STOCKFISH_DEPTH,
-                    time=config.STOCKFISH_TIME_LIMIT
-                )
-            )
+            # Handle both single and multiple PV results
+            if not isinstance(info_list, list):
+                info_list = [info_list]
             
-            best_move = result.move
+            if not info_list or not info_list[0].get('pv'):
+                return {
+                    'error': 'No analysis available',
+                    'best_move': None,
+                    'evaluation': None
+                }
+            
+            # Get best move from first analysis
+            best_info = info_list[0]
+            best_move = best_info['pv'][0]
             
             # Get evaluation score
-            score = info.get('score')
+            score = best_info.get('score')
             if score:
                 # Convert score to centipawns
                 if score.is_mate():
@@ -91,8 +96,35 @@ class ChessEngine:
                 eval_str = "Unknown"
             
             # Get principal variation (best line)
-            pv = info.get('pv', [])
+            pv = best_info.get('pv', [])
             pv_str = ' '.join([move.uci() for move in pv[:5]])  # First 5 moves
+            
+            # Collect top moves
+            top_moves = []
+            for analysis in info_list:
+                pv = analysis.get('pv', [])
+                if not pv:
+                    continue
+                    
+                move = pv[0]
+                score = analysis.get('score')
+                
+                if score:
+                    if score.is_mate():
+                        eval_str_move = f"Mate in {score.relative.moves}"
+                    else:
+                        centipawns = score.relative.score()
+                        eval_str_move = f"{centipawns / 100:.2f}"
+                else:
+                    eval_str_move = "Unknown"
+                
+                top_moves.append({
+                    'move': move,
+                    'move_san': board.san(move),
+                    'move_uci': move.uci(),
+                    'evaluation': eval_str_move,
+                    'pv': ' '.join([m.uci() for m in pv[:3]])
+                })
             
             return {
                 'best_move': best_move,
@@ -100,8 +132,9 @@ class ChessEngine:
                 'best_move_uci': best_move.uci(),
                 'evaluation': eval_str,
                 'principal_variation': pv_str,
-                'depth': info.get('depth', 0),
-                'nodes': info.get('nodes', 0)
+                'depth': best_info.get('depth', 0),
+                'nodes': best_info.get('nodes', 0),
+                'top_moves': top_moves
             }
             
         except Exception as e:

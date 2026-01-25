@@ -89,7 +89,8 @@ class ChessAnalyzer(QWidget):
         # Title
         title = QLabel("♟️ Real-time Chess Analyzer")
         title.setFont(QFont('Arial', 16, QFont.Weight.Bold))
-        title.setAlignment(Qt.A
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
         
         # Start/Stop button
         button_layout = QHBoxLayout()

@@ -1,6 +1,6 @@
 # Chess Board Real-time Analyzer
 
-Educational tool for analyzing chess positions in real-time using Stockfish engine.
+Educational tool for analyzing chess positions in real-time using Stockfish engine via scanning live chess boards.
 
 ## Features
 - Movable square overlay for board detection
@@ -8,6 +8,7 @@ Educational tool for analyzing chess positions in real-time using Stockfish engi
 - Chess board and piece detection
 - Stockfish engine integration
 - Best move suggestions
+- Chess advantage analysis
 
 ## Installation
 

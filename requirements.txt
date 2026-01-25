@@ -4,4 +4,4 @@ pillow==10.1.0
 python-chess==1.999
 mss==9.0.1
 PyQt6==6.6.1
-stockfish==3.28.0
+requests>=2.31.0

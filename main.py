@@ -309,14 +309,14 @@ class ChessAnalyzer(QWidget):
         else:
             # Reset error count on success
             self.engine_errors = 0
-               if (not self.analyzing and 
-                    self.chess_engine.engine and 
-                    fen != self.last_fen and
-                    current_time - self.last_analysis_time > 2.0):
-                    
-                    self.analyzing = True
-                    self.last_fen = fen
-                    self.last_analysis_time = current_time
+            if (not self.analyzing and 
+                self.chess_engine.engine and 
+                fen != self.last_fen and
+                current_time - self.last_analysis_time > 2.0):
+                
+                self.analyzing = True
+                self.last_fen = fen
+                self.last_analysis_time = current_time
                     
                     # Run analysis in background thread with new engine instance
                     self.analysis_worker = AnalysisWorker(

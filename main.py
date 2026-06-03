@@ -4,7 +4,7 @@ import sys
 import cv2
 import numpy as np
 import time
-from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget, QPushButton, QHBoxLayout
+from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QComboBox
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
 import chess
@@ -141,27 +141,44 @@ class ChessAnalyzer(QWidget):
                     color: white;
                     padding: 10px;
                     border-radius: 5px;
-        
-        if not self.engine_available:
-            self.status_label.setText("⚠ Engine unavailable - FEN detection only")
-            self.status_label.setStyleSheet("color: red;")
-        
                     min-height: 30px;
                 }
                 QPushButton:hover {
                     background-color: #45a049;
                 }
-                }
-        """)
+            """)
         self.start_button.clicked.connect(self.toggle_analysis)
         button_layout.addWidget(self.start_button)
         layout.addLayout(button_layout)
+        
+        # Board Orientation Selector
+        orientation_layout = QHBoxLayout()
+        orientation_label = QLabel("Orientation:")
+        orientation_label.setFont(QFont('Arial', 11))
+        self.orientation_combo = QComboBox()
+        self.orientation_combo.addItems(["White on Bottom", "Black on Bottom"])
+        self.orientation_combo.setFont(QFont('Arial', 11))
+        self.orientation_combo.setStyleSheet("""
+            QComboBox {
+                padding: 5px;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                min-width: 130px;
+                background-color: white;
+            }
+        """)
+        orientation_layout.addWidget(orientation_label)
+        orientation_layout.addWidget(self.orientation_combo)
+        layout.addLayout(orientation_layout)
         
         # Status label
         self.status_label = QLabel("Status: Stopped ⏸")
         self.status_label.setFont(QFont('Arial', 11))
         self.status_label.setStyleSheet("color: orange;")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        if not self.engine_available:
+            self.status_label.setText("⚠ Engine unavailable - FEN detection only")
+            self.status_label.setStyleSheet("color: red;")
         layout.addWidget(self.status_label)
         
         # FEN display
@@ -200,10 +217,6 @@ class ChessAnalyzer(QWidget):
     
     def toggle_analysis(self):
         """Toggle analysis on/off"""
-        # Skip if analysis is not enabled
-        if not self.analysis_enabled:
-            return
-            
         self.analysis_enabled = not self.analysis_enabled
         
         if self.analysis_enabled:
@@ -253,7 +266,10 @@ class ChessAnalyzer(QWidget):
             screen_img = self.screen_capture.capture_rect(capture_rect)
             
             # Detect board and pieces
-            fen = self.board_detector.image_to_fen(screen_img)
+            white_on_bottom = self.orientation_combo.currentIndex() == 0
+            self.overlay.white_on_bottom = white_on_bottom
+            
+            fen = self.board_detector.image_to_fen(screen_img, white_on_bottom=white_on_bottom)
             
             try:
                 # Create board from FEN
@@ -309,43 +325,18 @@ class ChessAnalyzer(QWidget):
         else:
             # Reset error count on success
             self.engine_errors = 0
-            if (not self.analyzing and 
-                self.chess_engine.engine and 
-                fen != self.last_fen and
-                current_time - self.last_analysis_time > 2.0):
-                
-                self.analyzing = True
-                self.last_fen = fen
-                self.last_analysis_time = current_time
-                    
-                    # Run analysis in background thread with new engine instance
-                    self.analysis_worker = AnalysisWorker(
-                        self.chess_engine.stockfish_path, 
-                        board
-                    )
-                    self.analysis_worker.analysis_complete.connect(self.on_analysis_complete)
-                    self.analysis_worker.start()
-                    
-            except Exception as e:
-                self.fen_label.setText(f"Detection error: {str(e)[:50]}")
-                
-        except Exception as e:
-            print(f"Analysis error: {e}")
     
     def on_analysis_complete(self, analysis):
         """Handle completed analysis from worker thread"""
-        self.analyzing = Falsecancel()
-            self.analysis_worker.terminate()
-            self.analysis_worker.wait(1000)  # Wait max 1 second
+        self.analyzing = False
         
-        self.screen_capture.close()
-        if self.chess_engine:
-            try:
-                self.chess_engine.close()
-            except:
-                passsetStyleSheet("color: red;")
+        if 'error' in analysis:
+            self.engine_errors += 1
+            self.status_label.setText(f"⚠ Engine error: {analysis['error'][:30]}")
+            self.status_label.setStyleSheet("color: red;")
             self.overlay.clear_best_move()
         else:
+            self.engine_errors = 0
             # Update best move
             best_move = analysis.get('best_move_san', '-')
             best_move_uci = analysis.get('best_move_uci', '')

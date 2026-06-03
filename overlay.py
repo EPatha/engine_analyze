@@ -18,6 +18,7 @@ class OverlayWindow(QWidget):
         self.drag_position = QPoint()
         self.resize_corner = None
         self.best_move_arrow = None  # Store best move for drawing arrow
+        self.white_on_bottom = True
         
     def init_ui(self):
         """Initialize the overlay window"""
@@ -199,8 +200,12 @@ class OverlayWindow(QWidget):
         Returns:
             tuple: (x, y) pixel coordinates at center of square
         """
-        file = ord(square[0]) - ord('a')  # 0-7
-        rank = 8 - int(square[1])  # 0-7 (reversed for display)
+        if self.white_on_bottom:
+            file = ord(square[0]) - ord('a')  # 0-7
+            rank = 8 - int(square[1])  # 0-7 (reversed for display)
+        else:
+            file = 7 - (ord(square[0]) - ord('a'))  # 0-7
+            rank = int(square[1]) - 1  # 0-7 (reversed for display)
         
         cell_width = self.width() / 8
         cell_height = self.height() / 8

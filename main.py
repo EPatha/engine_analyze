@@ -156,7 +156,7 @@ class ChessAnalyzer(QWidget):
         orientation_label = QLabel("Orientation:")
         orientation_label.setFont(QFont('Arial', 11))
         self.orientation_combo = QComboBox()
-        self.orientation_combo.addItems(["White on Bottom", "Black on Bottom"])
+        self.orientation_combo.addItems(["Auto-Detect", "White on Bottom", "Black on Bottom"])
         self.orientation_combo.setFont(QFont('Arial', 11))
         self.orientation_combo.setStyleSheet("""
             QComboBox {
@@ -266,7 +266,14 @@ class ChessAnalyzer(QWidget):
             screen_img = self.screen_capture.capture_rect(capture_rect)
             
             # Detect board and pieces
-            white_on_bottom = self.orientation_combo.currentIndex() == 0
+            orientation_idx = self.orientation_combo.currentIndex()
+            if orientation_idx == 0:
+                white_on_bottom = self.board_detector.detect_orientation(screen_img)
+            elif orientation_idx == 1:
+                white_on_bottom = True
+            else:
+                white_on_bottom = False
+                
             self.overlay.white_on_bottom = white_on_bottom
             
             fen = self.board_detector.image_to_fen(screen_img, white_on_bottom=white_on_bottom)

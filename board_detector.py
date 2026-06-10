@@ -116,6 +116,68 @@ class ChessBoardDetector:
         # Default to pawn for middle ranks
         return 'P' if is_white_piece else 'p'
     
+    def detect_orientation(self, image):
+        """
+        Auto-detect if White or Black is at the bottom of the board
+        by analyzing the pieces in the bottom and top rows.
+        
+        Args:
+            image: BGR image of chess board
+            
+        Returns:
+            bool: True if White is at the bottom, False if Black is at the bottom
+        """
+        board_data = self.detect_board(image)
+        squares = board_data['squares']
+        
+        white_pieces_bottom = 0
+        black_pieces_bottom = 0
+        white_pieces_top = 0
+        black_pieces_top = 0
+        
+        # Analyze bottom 2 rows (indices 6 and 7 in the image grid)
+        for row in [6, 7]:
+            for col in range(8):
+                square_img = squares[row][col]
+                gray = cv2.cvtColor(square_img, cv2.COLOR_BGR2GRAY)
+                h, w = gray.shape[:2]
+                center_region = gray[h//4:3*h//4, w//4:3*w//4]
+                
+                if np.std(center_region) >= 15:  # It's a piece
+                    if np.mean(center_region) > 127:
+                        white_pieces_bottom += 1
+                    else:
+                        black_pieces_bottom += 1
+                        
+        # Analyze top 2 rows (indices 0 and 1 in the image grid)
+        for row in [0, 1]:
+            for col in range(8):
+                square_img = squares[row][col]
+                gray = cv2.cvtColor(square_img, cv2.COLOR_BGR2GRAY)
+                h, w = gray.shape[:2]
+                center_region = gray[h//4:3*h//4, w//4:3*w//4]
+                
+                if np.std(center_region) >= 15:  # It's a piece
+                    if np.mean(center_region) > 127:
+                        white_pieces_top += 1
+                    else:
+                        black_pieces_top += 1
+                        
+        # If there are more white pieces at the bottom, white is on bottom
+        if white_pieces_bottom > black_pieces_bottom:
+            return True
+        elif black_pieces_bottom > white_pieces_bottom:
+            return False
+            
+        # If it's a tie or no pieces detected at bottom, check the top
+        if black_pieces_top > white_pieces_top:
+            return True
+        elif white_pieces_top > black_pieces_top:
+            return False
+            
+        # Default fallback
+        return True
+
     def image_to_fen(self, image, white_on_bottom=True):
         """
         Convert chess board image to FEN notation with robust validation and orientation support
